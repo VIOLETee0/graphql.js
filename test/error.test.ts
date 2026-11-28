@@ -175,6 +175,50 @@ describe("errors", () => {
       });
   });
 
+  it.each([
+    {
+      name: "primary limit",
+      status: 200,
+      headers: {
+        "x-ratelimit-remaining": "0",
+        "x-ratelimit-reset": "2000000000",
+      },
+    },
+    {
+      name: "secondary limit",
+      status: 200,
+      headers: { "retry-after": "60" },
+    },
+    {
+      name: "secondary limit",
+      status: 403,
+      headers: { "retry-after": "60" },
+    },
+  ])(
+    "preserves $name metadata with HTTP $status",
+    async ({ name, status, headers }) => {
+      const message =
+        name === "primary limit"
+          ? "API rate limit exceeded"
+          : "You have exceeded a secondary rate limit.";
+      const errors = [{ message }];
+      const body = status === 200 ? { data: null, errors } : { message };
+      const mock = fetchMock
+        .createInstance()
+        .post("https://api.github.com/graphql", { status, headers, body });
+      const expectedError =
+        status === 200
+          ? { name: "GraphqlResponseError", headers, data: null, errors }
+          : { name: "HttpError", status, response: { headers, data: body } };
+
+      await expect(
+        graphql("query { viewer { login } }", {
+          request: { fetch: mock.fetchHandler },
+        }),
+      ).rejects.toMatchObject(expectedError);
+    },
+  );
+
   it("Should throw for server error", () => {
     const query = `{
       viewer {
